@@ -10,8 +10,6 @@ Vite's base path is **`/video-editor/`**. Keep that setting for this repository'
 
 Push the changes to `main`, then open the **Actions** tab to see the build and deployment. The workflow runs `npm ci`, unit tests and the production build before deploying. Pull requests run those checks without deploying. The browser suite is a separate local check. No custom secrets, backend, media server, account system, or API keys are required; deployment uses GitHub's automatically provided token.
 
-Official setup reference: <https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages>.
-
 ## Development
 
 Use Node 22.12 or newer; the Pages workflow uses Node 22. Install dependencies inside a development container, not on the WSL host. Open this repository in VS Code and choose **Dev Containers: Reopen in Container** to use `.devcontainer/devcontainer.json`. Run these commands in the container's terminal:

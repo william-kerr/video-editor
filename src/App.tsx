@@ -44,7 +44,11 @@ export function App() {
   function position(value: number) { playhead.current = Math.max(0, value); setTime(playhead.current) }
   function pause() { playbackToken.current++; running.current = false; setPlaying(false); engine.stop() }
   function seek(value: number) { pause(); setSource(null); position(value) }
-  function change(next: Project) { state.current = next; setProject(next); engine.update(next) }
+  function change(next: Project) {
+    const tracks = next.tracks.map(track => track.solo && !next.clips.some(clip => clip.trackId === track.id && next.media.find(media => media.id === clip.mediaId)?.audio) ? { ...track, solo: false } : track)
+    if (tracks.some((track, index) => track !== next.tracks[index])) next = { ...next, tracks }
+    state.current = next; setProject(next); engine.update(next)
+  }
   function begin() { transaction.current ??= state.current }
   function commit(next: Project) {
     if (next === state.current) return

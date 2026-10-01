@@ -67,6 +67,32 @@ test('imports, plays audible tracks, edits, loops, and undoes', async ({ page })
   expect(errors).toEqual([])
 })
 
+test('removing a solo track’s last clip or media restores other audio and can be undone', async ({ page }) => {
+  await page.goto('./')
+  await importFiles(page, ['landscape.mp4', 'music.wav'])
+  await drop(page, 'landscape.mp4', 'Video')
+  await drop(page, 'music.wav', 'Audio')
+  const solo = page.locator('.audio-channel .solo-button')
+  await solo.click()
+  await page.locator('.audio-clip').click({ position: { x: 45, y: 35 } })
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.audio-clip')).toHaveCount(0)
+  await expect(solo).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.audio-clip')).toHaveCount(1)
+  await expect(solo).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('.media-card').filter({ hasText: 'music.wav' }).getByRole('button', { name: 'Remove media' }).click()
+  await expect(page.locator('.audio-clip')).toHaveCount(0)
+  await expect(solo).toHaveAttribute('aria-pressed', 'false')
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect.poll(() => page.locator('.audio-meter').first().evaluate(canvas => {
+    const c = canvas as HTMLCanvasElement
+    const pixels = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+    for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 1] > 150) return true
+    return false
+  }), { timeout: 2500 }).toBe(true)
+})
+
 test('portrait export downloads full resolution with trimmed markers and processed audio', async ({ page }, info) => {
   await page.goto('./')
   await importFiles(page, ['portrait.mp4'])
