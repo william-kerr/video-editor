@@ -100,7 +100,8 @@ h3{font-size:13px;font-weight:600}
 .learn-button:hover:not(:disabled){background:#41646a;border-color:#83b5b7;color:#e2ffff}
 .audio-meter{width:100%;height:8px;display:block}
 .gain-slider{display:block;margin:10px 0 0;width:100%;height:16px;position:relative;z-index:1}
-.gain-notch{position:absolute;bottom:9px;left:calc(83.333% - 1px);width:1px;height:4px;background:#718298;pointer-events:none}
+/* Match the range's 12px thumb travel and pixel rounding at 0 dB (5/6 of the range). */
+.gain-notch{position:absolute;bottom:9px;left:calc(4px + 6px + round(down,(100% - 8px - 12px) * 5 / 6,1px));transform:translateX(-50%);width:1px;height:4px;background:#718298;pointer-events:none}
 .mix-channel .knob-rack{margin-bottom:14px}
 .mix-channel{padding-bottom:10px}
 .mixer-channels .single-knob{justify-content:center}
