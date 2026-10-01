@@ -1,0 +1,31 @@
+Video Editor dependency notices
+
+The original application is released under the Unlicense in the repository LICENSE.
+Third-party components retain their own licenses.
+
+FFmpeg WebAssembly core 0.12.10: GPL-2.0-or-later
+This site serves the unmodified single-thread @ffmpeg/core 0.12.10 binary and loader.
+Corresponding source, build recipes and third-party library versions:
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/v12.15
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/v12.15/build
+https://github.com/ffmpegwasm/ffmpeg.wasm/blob/v12.15/Dockerfile
+The core includes FFmpeg and external codec libraries including x264; their licenses apply.
+License text: FFmpeg-GPL-2.0.txt
+
+@ffmpeg/ffmpeg wrapper: MIT
+https://github.com/ffmpegwasm/ffmpeg.wasm/tree/main/packages/ffmpeg
+
+React, React DOM, scheduler: MIT
+https://github.com/facebook/react
+
+fft.js: MIT
+https://github.com/indutny/fft.js
+
+Spectral gating algorithm: based on noisereduce (MIT), as adapted in the desktop Video Editor.
+See Noisereduce-MIT.txt.
+
+Mediabunny 1.61.0: Mozilla Public License 2.0
+Unmodified library bundled for local WebCodecs decoding, encoding and MP4 muxing.
+Corresponding source: https://github.com/Vanilagy/mediabunny/tree/v1.61.0
+https://www.npmjs.com/package/mediabunny/v/1.61.0
+License text: Mediabunny-MPL-2.0.txt

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+public/ffmpeg/
+playwright-report/
+test-results/
+tests/fixtures/
+*.tsbuildinfo
+artifacts/visual-review/

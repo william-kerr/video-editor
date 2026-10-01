@@ -1,0 +1,14 @@
+{
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "extensions.ignoreRecommendations": true,
+        "workbench.editor.enablePreview": false,
+        "workbench.startupEditor": "none"
+      }
+    }
+  },
+  "image": "mcr.microsoft.com/devcontainers/javascript-node",
+  "name": "Video Editor",
+  "runArgs": ["--name=video_editor"]
+}
