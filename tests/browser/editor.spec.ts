@@ -320,3 +320,161 @@ test('export falls back to WASM when browser encoding is unavailable', async ({ 
   expect([video.width, video.height, video.codec_name]).toEqual([180, 320, 'h264'])
   expect(Number(probe.format.duration)).toBeCloseTo(1, 1)
 })
+
+for (const extension of ['mp3', 'wav', 'm4a']) test(`file drop recognizes ${extension} cover art as audio without reading the entire file`, async ({ page }) => {
+  await page.addInitScript(() => {
+    File.prototype.arrayBuffer = async () => { throw new Error('Whole-file audio/probe read') }
+    const durations: number[] = []
+    ;(window as any).decodedDurations = durations
+    window.OfflineAudioContext = new Proxy(OfflineAudioContext, { construct(Target, args) {
+      durations.push(args[1] / args[2])
+      return Reflect.construct(Target, args)
+    } })
+    const decode = AudioContext.prototype.decodeAudioData
+    AudioContext.prototype.decodeAudioData = function (bytes, ...args) {
+      if (bytes.byteLength > 8.3 * 48000 * 2 * 4 + 4096) throw new Error('Unbounded audio decode')
+      return decode.call(this, bytes, ...args)
+    }
+  })
+  await page.goto('./')
+  await page.locator('input[type=file]').setInputFiles(`tests/fixtures/covered.${extension}`)
+  // Exercise both import paths, including a desktop drop with an empty MIME type.
+  await expect(page.locator('.media-card')).toHaveCount(1)
+  await page.locator('.media-card').getByRole('button', { name: 'Remove media' }).click()
+  const bytes = Array.from(await readFile(`tests/fixtures/covered.${extension}`))
+  await page.locator('.media-panel').evaluate((panel, { bytes, extension }) => {
+    const transfer = new DataTransfer()
+    transfer.items.add(new File([new Uint8Array(bytes)], `song.${extension}`))
+    panel.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }))
+  }, { bytes, extension })
+  await expect(page.locator('.media-card')).toHaveAttribute('aria-label', `song.${extension}, audio`)
+  await expect(page.locator('.media-card img')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await drop(page, `song.${extension}`, 'Audio')
+  await seek(page, 7.5)
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect.poll(async () => Number((await page.getByLabel('Playhead time').textContent())!.split(':')[1])).toBeGreaterThan(9)
+  await expect.poll(() => page.locator('.audio-meter').first().evaluate(canvas => {
+    const c = canvas as HTMLCanvasElement
+    return c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data.some((value, i) => i % 4 === 1 && value > 150)
+  })).toBe(true)
+  expect(await page.evaluate(() => Math.max(0, ...(window as any).decodedDurations))).toBeLessThanOrEqual(8.3)
+})
+
+test('repeated play and stop releases nodes and recovers a suspended or closed audio context', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.addInitScript(() => {
+    const contexts: AudioContext[] = []
+    const nodes: AudioWorkletNode[] = []
+    const retired = new Set<AudioWorkletNode>()
+    ;(window as any).audioTest = { contexts, nodes, retired }
+    const addModule = AudioWorklet.prototype.addModule
+    AudioWorklet.prototype.addModule = async function (url, options) {
+      const source = await (await fetch(url)).text()
+      const observed = `
+        let active = 0;
+        function observeProcessor(name, Processor) {
+          registerProcessor(name, class extends Processor {
+            constructor() {
+              super(); active++;
+              this.port.addEventListener('message', event => { if (event.data.testFail) this.testFail = true; });
+            }
+            process(...args) {
+              if (this.testFail) throw new Error('Test audio processor failure');
+              const alive = super.process(...args);
+              if (!alive && !this.retired) { this.retired = true; active--; }
+              return alive;
+            }
+          });
+        }
+        ${source.replace('registerProcessor(', 'observeProcessor(')}
+        registerProcessor('lifetime-monitor', class extends AudioWorkletProcessor {
+          process() { this.port.postMessage(active); return true; }
+        });`
+      const blob = URL.createObjectURL(new Blob([observed], { type: 'text/javascript' }))
+      try { await addModule.call(this, blob, options) } finally { URL.revokeObjectURL(blob) }
+    }
+    window.AudioContext = new Proxy(AudioContext, { construct(Target, args) {
+      const context = Reflect.construct(Target, args) as AudioContext
+      contexts.push(context)
+      return context
+    } })
+    window.AudioWorkletNode = new Proxy(AudioWorkletNode, { construct(Target, args) {
+      const node = Reflect.construct(Target, args) as AudioWorkletNode
+      if (args[1] === 'lifetime-monitor') return node
+      nodes.push(node)
+      const post = node.port.postMessage.bind(node.port)
+      node.port.postMessage = (data: any) => { if (data.dispose) retired.add(node); post(data) }
+      return node
+    } })
+  })
+  await page.goto('./')
+  await importFiles(page, ['covered.wav'])
+  await drop(page, 'covered.wav', 'Audio')
+  for (let i = 0; i < 30; i++) {
+    await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+    await expect(page.locator('.status-bar')).toContainText('Playing')
+    await page.getByRole('button', { name: 'Pause (Space)', exact: true }).click()
+  }
+  expect(await page.evaluate(() => { const { nodes, retired } = (window as any).audioTest; return nodes.length - retired.size })).toBe(0)
+  await page.evaluate(() => {
+    const test = (window as any).audioTest
+    const monitor = new AudioWorkletNode(test.contexts.at(-1), 'lifetime-monitor')
+    monitor.port.onmessage = event => { test.active = event.data }
+    monitor.connect(test.contexts.at(-1).destination)
+  })
+  await expect.poll(() => page.evaluate(() => (window as any).audioTest.active)).toBe(0)
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await page.evaluate(() => (window as any).audioTest.contexts.at(-1).suspend())
+  await expect(page.getByRole('alert')).toContainText('interrupted')
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await page.evaluate(() => (window as any).audioTest.contexts.at(-1).close())
+  await expect(page.getByRole('alert')).toContainText('interrupted')
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await expect.poll(() => page.evaluate(() => (window as any).audioTest.nodes.filter((node: AudioWorkletNode) => node.onprocessorerror).length)).toBe(3)
+  await page.evaluate(() => (window as any).audioTest.nodes.find((node: AudioWorkletNode) => node.onprocessorerror).port.postMessage({ testFail: true }))
+  await expect(page.getByRole('alert')).toContainText('audio processor stopped')
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await expect.poll(() => page.locator('.audio-meter').first().evaluate(canvas => {
+    const c = canvas as HTMLCanvasElement
+    return c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data.some((value, i) => i % 4 === 1 && value > 150)
+  })).toBe(true)
+  expect(errors).toEqual([])
+})
+
+for (const extension of ['wav', 'mp3', 'm4a']) test(`${extension} audio stays continuous across decoded and mixed sections`, async ({ page }, info) => {
+  // Exercise the AAC fallback while retaining native video encoding.
+  if (extension === 'm4a') await page.addInitScript(() => Object.defineProperty(window, 'AudioDecoder', { configurable: true, value: undefined }))
+  await page.goto('./')
+  await importFiles(page, [`covered.${extension}`, 'portrait.mp4'])
+  await drop(page, `covered.${extension}`, 'Audio')
+  await marker(page, .5, 'In')
+  await marker(page, 18.5, 'Out')
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: /^Export between/ }).click()
+  const path = info.outputPath('sectioned-audio.mp4')
+  await (await download).saveAs(path)
+  const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', path, '-f', 'f32le', '-ac', '2', '-ar', '48000', '-'], { maxBuffer: 8 * 1024 * 1024 })
+  const samples = new Float32Array(pcm.buffer, pcm.byteOffset, pcm.byteLength / 4)
+  expect(samples.length / 2 / 48000).toBeCloseTo(18, 1)
+  // Every 10 ms around each chunk boundary must contain sound, with no splice jumps.
+  for (const boundary of [3.5, 4, 7.5, 8, 11.5, 12, 15.5, 16]) {
+    const start = Math.round((boundary - .02) * 48000)
+    for (let offset = start; offset < start + 1920; offset += 480) {
+      for (let channel = 0; channel < 2; channel++) {
+        let energy = 0, jump = 0
+        for (let i = offset; i < offset + 480; i++) {
+          energy += samples[i * 2 + channel] ** 2
+          jump = Math.max(jump, Math.abs(samples[i * 2 + channel] - samples[(i - 1) * 2 + channel]))
+        }
+        expect(Math.sqrt(energy / 480)).toBeGreaterThan(.08)
+        expect(jump).toBeLessThan(.04)
+      }
+    }
+  }
+})

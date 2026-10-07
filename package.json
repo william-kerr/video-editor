@@ -1,6 +1,6 @@
 {
   "name": "video-editor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Simple browser-based video editor",
   "repository": "github:william-kerr/video-editor",

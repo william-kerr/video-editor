@@ -10,7 +10,7 @@ export interface Media {
   height: number
   fps: number
   thumbnail?: string
-  audio?: AudioBuffer
+  hasAudio: boolean
   peaks: Float32Array[]
   autoProfile?: number[]
 }

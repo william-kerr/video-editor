@@ -1,6 +1,8 @@
-import { audible, canvasSize, end, exportRange, type Project } from '../model'
-import { channelsOf, denoised, renderMix } from '../audio/cache'
-import { execute, extension, removeFiles, withFFmpeg } from './ffmpeg'
+import { audible, canvasSize, end, exportRange, uid, type Project } from '../model'
+import { channelsOf, denoised, releaseMix, renderMix } from '../audio/cache'
+import { audioRange } from '../audio/source'
+import { RATE, wavHeader } from '../audio/dsp'
+import { cancelFFmpeg, execute, mountFile, unmountFile, removeFiles, withFFmpeg } from './ffmpeg'
 import { renderBrowserVideo } from './browser-export'
 
 export interface ExportProgress { message: string; fraction?: number }
@@ -9,17 +11,7 @@ export async function exportVideo(project: Project, progress: (value: ExportProg
   if (finish <= start) throw new Error('Add clips and set an Out marker after the In marker, or remove the markers to export everything.')
   const check = () => { if (signal.aborted) throw new DOMException('Export canceled', 'AbortError') }
   progress({ message: 'Preparing the audio mix…' })
-  const clips = await Promise.all(project.clips.filter(clip => {
-    const track = project.tracks.find(t => t.id === clip.trackId)!
-    return audible(track, project) && end(clip) > start && clip.start < finish && project.media.find(m => m.id === clip.mediaId)?.audio
-  }).map(async clip => {
-    const track = project.tracks.find(t => t.id === clip.trackId)!
-    const media = project.media.find(m => m.id === clip.mediaId)!
-    const wet = track.denoiseOn && track.denoise > 0 ? await denoised(media, track.noiseProfile) : undefined
-    return { clip, track, dry: channelsOf(media.audio!), wet: wet ? channelsOf(wet) : undefined }
-  }))
-  check()
-  const wav = await renderMix({ clips, start, finish, loudness: project.loudnessOn ? project.loudness : 0 })
+  const wav = await renderAudio(project, start, finish, check)
   check()
   progress({ message: 'Encoding video…', fraction: 0 })
   const encoded = await renderBrowserVideo(project, fraction => progress({ message: 'Encoding video…', fraction: fraction * .9 }), signal)
@@ -37,7 +29,7 @@ export async function exportVideo(project: Project, progress: (value: ExportProg
         await execute(ffmpeg, ['-i', 'encoded-video.mp4', '-i', 'mix.wav', '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-t', String(finish - start), '-movflags', '+faststart', 'export.mp4'])
         check()
         return (await ffmpeg.readFile('export.mp4') as Uint8Array).slice()
-      } finally { await removeFiles(ffmpeg, files) }
+      } finally { await removeFiles(ffmpeg, files); cancelFFmpeg() }
     }, message => progress({ message }))
     check()
     return new Blob([output.buffer as ArrayBuffer], { type: 'video/mp4' })
@@ -45,6 +37,7 @@ export async function exportVideo(project: Project, progress: (value: ExportProg
   const output = await withFFmpeg(async ffmpeg => {
     check()
     const files: string[] = ['mix.wav', 'export.mp4']
+    const directories: string[] = []
     const size = canvasSize(project)
     const length = finish - start
     const args: string[] = ['-f', 'lavfi', '-i', `color=c=black:s=${size.width}x${size.height}:r=${size.fps}:d=${length}`]
@@ -62,10 +55,10 @@ export async function exportVideo(project: Project, progress: (value: ExportProg
         check()
         const media = project.media.find(m => m.id === clip.mediaId)!
         if (!inputNames.has(media.id)) {
-          const name = `media-${input}.${extension(media.name)}`
-          files.push(name); inputNames.set(media.id, name)
+          const directory = `/media-${input}`
+          directories.push(directory)
           progress({ message: `Preparing ${media.name}…` })
-          await ffmpeg.writeFile(name, new Uint8Array(await media.file.arrayBuffer()))
+          inputNames.set(media.id, await mountFile(ffmpeg, media.file, directory))
         }
         const visibleStart = Math.max(start, clip.start)
         const visibleEnd = Math.min(finish, end(clip))
@@ -88,8 +81,42 @@ export async function exportVideo(project: Project, progress: (value: ExportProg
       await execute(ffmpeg, args)
       check()
       return (await ffmpeg.readFile('export.mp4') as Uint8Array).slice()
-    } finally { ffmpeg.off('progress', listener); await removeFiles(ffmpeg, files) }
+    } finally {
+      ffmpeg.off('progress', listener); await removeFiles(ffmpeg, files)
+      for (const directory of directories) await unmountFile(ffmpeg, directory)
+      cancelFFmpeg()
+    }
   }, message => progress({ message }))
   check()
   return new Blob([output.buffer as ArrayBuffer], { type: 'video/mp4' })
+}
+
+async function renderAudio(project: Project, start: number, finish: number, check: () => void) {
+  const frames = Math.ceil((finish - start) * RATE)
+  const wav = new Uint8Array(44 + frames * 4)
+  wav.set(wavHeader(frames))
+  const mixId = uid()
+  const tracks = project.tracks.filter(track => audible(track, project) && project.clips.some(clip => clip.trackId === track.id && end(clip) > start && clip.start < finish && project.media.find(media => media.id === clip.mediaId)?.hasAudio))
+  try {
+    for (let frame = 0; frame < frames; frame += 4 * RATE) {
+      check()
+      const from = start + frame / RATE, to = start + Math.min(frames, frame + 4 * RATE) / RATE
+      const clips = []
+      for (const clip of project.clips) {
+        const track = project.tracks.find(t => t.id === clip.trackId)!
+        const media = project.media.find(m => m.id === clip.mediaId)!
+        if (!media.hasAudio || !audible(track, project) || end(clip) <= from || clip.start >= to) continue
+        const sourceStart = clip.sourceIn + Math.max(from, clip.start) - clip.start
+        const sourceEnd = Math.min(media.duration, clip.sourceIn + Math.min(to, end(clip)) - clip.start)
+        const dry = await audioRange(media, sourceStart, sourceEnd)
+        check()
+        const wet = track.denoiseOn && track.denoise > 0 ? await audioRange(media, sourceStart, sourceEnd, (media, index) => denoised(media, index, track.noiseProfile)) : undefined
+        clips.push({ clip, track, sourceStart, dry: channelsOf(dry), wet: wet ? channelsOf(wet) : undefined })
+      }
+      check()
+      const part = await renderMix({ clips, tracks, frames: Math.min(4 * RATE, frames - frame), start: from, finish: to, loudness: project.loudnessOn ? project.loudness : 0 }, mixId)
+      wav.set(part.subarray(44, 44 + Math.min(4 * RATE, frames - frame) * 4), 44 + frame * 4)
+    }
+    return wav
+  } finally { await releaseMix(mixId) }
 }

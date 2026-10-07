@@ -46,3 +46,60 @@ test('export mixes overlapping tracks before applying the ceiling limiter', () =
   assert.ok(peak <= CEILING + 1 / 32767)
   assert.ok(peak > .85)
 })
+
+test('sectioned export preserves samples, source offsets and dynamics across gaps', async () => {
+  const { newMixState } = await import('../../src/audio/mix')
+  const track = { ...newTrack('audio'), compression: 65, compressionOn: true, gain: 6 }
+  const laterTrack = { ...newTrack('audio'), gain: -12 }
+  const dry = [Float32Array.from({ length: 48000 * 12 }, (_, i) => .5 * Math.sin(i * .03))]
+  const clip: Clip = { id: 'c', mediaId: 'm', trackId: track.id, start: 0, sourceIn: 1, sourceOut: 5, fadeIn: .2, fadeOut: 1 }
+  const clips = [{ clip, track, dry }, { clip: { ...clip, id: 'd', start: 8, sourceIn: 6, sourceOut: 10 }, track, dry }, { clip: { ...clip, id: 'e', start: 8, sourceIn: 6, sourceOut: 10, fadeIn: 0, trackId: laterTrack.id }, track: laterTrack, dry }]
+  const whole = mixAudio({ clips, start: 0, finish: 12, loudness: 8 })
+  const state = newMixState()
+  const parts = []
+  for (let start = 0; start < 12; start += 4) {
+    const section = clips.filter(({ clip }) => clip.start < start + 4 && clip.start + 4 > start).map(item => ({
+      ...item, sourceStart: item.clip.sourceIn, dry: item.dry.map(channel => channel.slice(item.clip.sourceIn * 48000, item.clip.sourceOut * 48000)),
+    }))
+    parts.push(mixAudio({ clips: section, tracks: [track, laterTrack], start, finish: start + 4, loudness: 8 }, state).subarray(44))
+  }
+  assert.deepEqual(Buffer.concat(parts), Buffer.from(whole.subarray(44)))
+})
+
+test('stopped worklets retire instead of processing silence forever', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { runInNewContext } = await import('node:vm')
+  const { transpileModule, ModuleKind, ScriptTarget } = await import('typescript')
+  const dsp = await import('../../src/audio/dsp')
+  let Processor: any
+  const source = await readFile(new URL('../../src/audio/processor.ts', import.meta.url), 'utf8')
+  runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText, {
+    exports: {}, require: () => dsp, sampleRate: 48000,
+    AudioWorkletProcessor: class { port = { onmessage: null, postMessage() {}, close() {} } },
+    registerProcessor: (_: string, value: any) => { Processor = value },
+  })
+  const processor = new Processor()
+  const output = [[new Float32Array(128).fill(1), new Float32Array(128).fill(1)]]
+  assert.equal(processor.process([[]], output), true)
+  assert.equal(output[0][0].every(value => value === 0), true)
+  processor.port.onmessage({ data: { dispose: true } })
+  assert.equal(processor.process([[]], output), false)
+})
+
+test('decoded audio cache shares pending reads and evicts old buffers within its memory budget', async () => {
+  const { cachedBuffer, retainBuffers } = await import('../../src/audio/buffer-cache')
+  retainBuffers(new Set())
+  let reads = 0
+  const decode = async () => { reads++; return { length: 2 * 1024 * 1024, numberOfChannels: 2 } as AudioBuffer }
+  const [first, same] = await Promise.all([cachedBuffer('a:dry:0', decode), cachedBuffer('a:dry:0', decode)])
+  assert.equal(first, same)
+  assert.equal(reads, 1)
+  for (let i = 1; i <= 4; i++) await cachedBuffer(`a:dry:${i}`, decode)
+  await cachedBuffer('a:dry:4', decode)
+  assert.equal(reads, 5)
+  await cachedBuffer('a:dry:0', decode)
+  assert.equal(reads, 6)
+  retainBuffers(new Set())
+  await cachedBuffer('a:dry:0', decode)
+  assert.equal(reads, 7)
+})

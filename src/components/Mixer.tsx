@@ -9,7 +9,7 @@ interface MixerProps {
   update: (id: string, patch: Partial<Track>) => void; updateMix: (value: number, enabled: boolean) => void; learn: (id: string) => Promise<boolean>
 }
 export const Mixer = memo(function Mixer({ project, engine, begin, finish, update, updateMix, learn }: MixerProps) {
-  const active = (id: string) => project.clips.some(c => c.trackId === id && project.media.find(m => m.id === c.mediaId)?.audio)
+  const active = (id: string) => project.clips.some(c => c.trackId === id && project.media.find(m => m.id === c.mediaId)?.hasAudio)
   const any = project.tracks.some(t => active(t.id))
   return <section className="panel mixer-panel" aria-label="Audio mixer">
     <header className="panel-header"><Icon name="mixer" /><h2>Audio mixer</h2><span className="sample-rate">48 kHz</span></header>

@@ -72,7 +72,7 @@ export function Timeline(props: Props) {
             return <div key={clip.id} className={`clip ${media.kind}-clip ${selected === clip.id ? 'selected' : ''} ${hovered ? `hover-${hovered}` : ''}`} data-clip-id={clip.id} data-media-name={media.name} style={{ left: LABEL + clip.start * zoom, top: index * ROW + 6, width: Math.max(4, duration(clip) * zoom), height: ROW - 12 }} tabIndex={0} aria-label={`${media.name}, ${track.name}, ${timecode(clip.start, true)} to ${timecode(end(clip), true)}`} onFocus={() => props.select(clip.id)} onPointerDown={event => { event.stopPropagation(); event.currentTarget.focus(); props.select(clip.id); const op = operation(event, clip); gesture.current = { clip, x: event.clientX, operation: op, project, scroll: scroll.current!.scrollLeft }; setHover({ id: clip.id, operation: op }); event.currentTarget.setPointerCapture(event.pointerId); props.begin() }} onPointerMove={event => move(event, clip)} onPointerLeave={() => { if (!gesture.current) setHover(null) }} onPointerUp={event => { gesture.current = null; event.currentTarget.releasePointerCapture(event.pointerId); props.finish() }} onPointerCancel={() => { gesture.current = null; props.finish() }}>
               <div className="clip-header"><span>{media.name}</span></div>
               <Waveform media={media} clip={clip} mono={track.mono} />
-              {media.thumbnail && <img className={`clip-thumbnail ${media.audio ? 'with-audio' : ''}`} src={media.thumbnail} alt="" draggable={false} />}
+              {media.thumbnail && <img className={`clip-thumbnail ${media.hasAudio ? 'with-audio' : ''}`} src={media.thumbnail} alt="" draggable={false} />}
               <svg className="fade-triangles" width="100%" height="100%" preserveAspectRatio="none" viewBox={`0 0 ${Math.max(1, duration(clip) * zoom)} ${ROW - 12}`}><polygon points={`0,0 ${clip.fadeIn * zoom},0 0,${ROW - 12}`} /><polygon points={`${duration(clip) * zoom},0 ${(duration(clip) - clip.fadeOut) * zoom},0 ${duration(clip) * zoom},${ROW - 12}`} /></svg>
               <span className="fade-handle fade-left" style={{ left: Math.max(4, clip.fadeIn * zoom - 3) }} /><span className="fade-handle fade-right" style={{ right: Math.max(4, clip.fadeOut * zoom - 3) }} />
               <span className="trim-affordance trim-left" /><span className="trim-affordance trim-right" />
@@ -93,7 +93,7 @@ const Waveform = memo(function Waveform({ media, clip, mono }: { media: Media; c
   useEffect(() => {
     const element = canvas.current!
     function draw() {
-      const width = Math.round(element.clientWidth * devicePixelRatio), height = Math.round(element.clientHeight * devicePixelRatio)
+      const width = Math.min(8192, Math.round(element.clientWidth * devicePixelRatio)), height = Math.round(element.clientHeight * devicePixelRatio)
       element.width = width; element.height = height
       const context = element.getContext('2d')!
       if (!media.peaks.length) return

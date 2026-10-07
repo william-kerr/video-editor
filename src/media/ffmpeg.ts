@@ -1,4 +1,4 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg'
+import { FFmpeg, FFFSType } from '@ffmpeg/ffmpeg'
 
 let engine: FFmpeg | null = null
 let ready: Promise<FFmpeg> | null = null
@@ -33,6 +33,18 @@ export function cancelFFmpeg() {
   ready = null
 }
 export const extension = (name: string) => name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'bin'
+export async function mountFile(ffmpeg: FFmpeg, file: File, directory: string) {
+  await ffmpeg.createDir(directory)
+  const name = `input.${extension(file.name)}`
+  if (!await ffmpeg.mount(FFFSType.WORKERFS, { blobs: [{ name, data: file }] }, directory)) {
+    await ffmpeg.deleteDir(directory)
+    throw new Error('The video engine could not open the local file.')
+  }
+  return `${directory}/${name}`
+}
+export async function unmountFile(ffmpeg: FFmpeg, directory: string) {
+  try { await ffmpeg.unmount(directory); await ffmpeg.deleteDir(directory) } catch { /* Engine can be terminated by Cancel. */ }
+}
 export async function removeFiles(ffmpeg: FFmpeg, names: string[]) {
   for (const name of names) { try { await ffmpeg.deleteFile(name) } catch { /* Engine can be terminated by Cancel. */ } }
 }

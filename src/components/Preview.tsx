@@ -46,7 +46,7 @@ export function Preview(props: Props) {
       active.add(clip.id)
       let video = videos.current.get(clip.id)
       if (!video || video.src !== media.url) {
-        video?.pause()
+        if (video) { video.pause(); video.onseeked = null; video.onloadeddata = null; video.removeAttribute('src'); video.load() }
         video = document.createElement('video'); video.muted = true; video.playsInline = true; video.preload = 'auto'; video.src = media.url
         video.onseeked = draw; video.onloadeddata = draw
         videos.current.set(clip.id, video)
@@ -55,7 +55,7 @@ export function Preview(props: Props) {
       if (Math.abs(video.currentTime - target) > (playing ? .18 : .012)) video.currentTime = Math.max(0, target)
       if (playing && !source) { if (video.paused) void video.play().catch(() => {}) } else video.pause()
     }
-    for (const [id, video] of videos.current) if (!active.has(id)) { video.pause(); if (!project.clips.some(c => c.id === id) && id !== 'source') { video.removeAttribute('src'); video.load(); videos.current.delete(id) } }
+    for (const [id, video] of videos.current) if (!active.has(id)) { video.pause(); video.onseeked = null; video.onloadeddata = null; video.removeAttribute('src'); video.load(); videos.current.delete(id) }
     draw()
   }, [project, time, playing, quality, source])
   useEffect(() => () => { for (const video of videos.current.values()) { video.pause(); video.removeAttribute('src'); video.load() } videos.current.clear() }, [])

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { canvasSize, clamp, end, markerRange, newProject, newTrack, placeClip, splitClip, timelineEnd, uid, type Media, type Project, type Track } from './model'
 import { importMedia } from './media/import'
 import { AudioPlayback } from './audio/playback'
-import { channelsOf, denoised, learn } from './audio/cache'
+import { channelsOf, learn } from './audio/cache'
+import { audioRange, retainAudio } from './audio/source'
 import { exportVideo, type ExportProgress } from './media/export'
 import { cancelFFmpeg } from './media/ffmpeg'
 import { MediaBin } from './components/MediaBin'
@@ -45,7 +46,7 @@ export function App() {
   function pause() { playbackToken.current++; running.current = false; setPlaying(false); engine.stop() }
   function seek(value: number) { pause(); setSource(null); position(value) }
   function change(next: Project) {
-    const tracks = next.tracks.map(track => track.solo && !next.clips.some(clip => clip.trackId === track.id && next.media.find(media => media.id === clip.mediaId)?.audio) ? { ...track, solo: false } : track)
+    const tracks = next.tracks.map(track => track.solo && !next.clips.some(clip => clip.trackId === track.id && next.media.find(media => media.id === clip.mediaId)?.hasAudio) ? { ...track, solo: false } : track)
     if (tracks.some((track, index) => track !== next.tracks[index])) next = { ...next, tracks }
     state.current = next; setProject(next); engine.update(next)
   }
@@ -82,6 +83,7 @@ export function App() {
       if (at < range[0] || at >= range[1] - .001) at = range[0]
     } else if (at >= timelineEnd(current)) at = 0
     const token = ++playbackToken.current
+    setError(null)
     markerPlayback.current = bounded
     running.current = true; setPlaying(true); setSource(null); position(at)
     try {
@@ -110,6 +112,7 @@ export function App() {
     const message = reason instanceof Error ? reason.message : String(reason)
     setStatus(message); setError(message)
   }
+  engine.onerror = error => { position(engine.time()); pause(); report(error) }
   async function importFiles(files: File[]) {
     if (importing.current || exporter.current || !files.length) return
     pause(); importing.current = true; setBusy(true); setError(null)
@@ -164,26 +167,26 @@ export function App() {
     const [start, stopTime] = range
     const channels = [new Float32Array(Math.ceil((stopTime - start) * 48000)), new Float32Array(Math.ceil((stopTime - start) * 48000))]
     let found = false
-    for (const clip of current.clips.filter(c => c.trackId === id && c.start < stopTime && end(c) > start)) {
-      const audio = current.media.find(m => m.id === clip.mediaId)?.audio
-      if (!audio) continue
-      found = true
-      const samples = channelsOf(audio)
-      for (let i = Math.max(0, Math.round((clip.start - start) * 48000)); i < Math.min(channels[0].length, Math.round((end(clip) - start) * 48000)); i++) {
-        const index = Math.round((clip.sourceIn + start + i / 48000 - clip.start) * 48000)
-        for (let c = 0; c < 2; c++) channels[c][i] += samples[Math.min(c, samples.length - 1)][index] || 0
-      }
-    }
-    if (!found) { setStatus('There is no audio on this track between the markers'); return false }
     setStatus('Learning background noise…')
     try {
+      for (const clip of current.clips.filter(c => c.trackId === id && c.start < stopTime && end(c) > start)) {
+        const media = current.media.find(m => m.id === clip.mediaId)!
+        if (!media.hasAudio) continue
+        found = true
+        const from = Math.max(clip.start, start), to = Math.min(end(clip), stopTime)
+        const sourceStart = clip.sourceIn + from - clip.start
+        const audio = await audioRange(media, sourceStart, clip.sourceIn + to - clip.start)
+        const samples = channelsOf(audio)
+        for (let i = Math.max(0, Math.round((clip.start - start) * 48000)); i < Math.min(channels[0].length, Math.round((end(clip) - start) * 48000)); i++) {
+          const index = Math.round((start + i / 48000 - from) * 48000)
+          for (let c = 0; c < 2; c++) channels[c][i] += samples[Math.min(c, samples.length - 1)][index] || 0
+        }
+      }
+      if (!found) { setStatus('There is no audio on this track between the markers'); return false }
       const profile = await learn(channels)
+      if (!state.current.tracks.some(track => track.id === id)) return false
       begin(); updateTrack(id, { noiseProfile: profile }); finish()
       setStatus('Noise learned between In and Out markers')
-      for (const clip of state.current.clips.filter(c => c.trackId === id)) {
-        const media = state.current.media.find(m => m.id === clip.mediaId)!
-        if (media.audio) void denoised(media, profile).catch(report)
-      }
       return true
     } catch (error) { report(error); return false }
   }
@@ -209,6 +212,13 @@ export function App() {
     const a = document.createElement('a'); a.href = url; a.download = 'video.mp4'; document.body.append(a); a.click(); a.remove()
   }
   const actions = useRef({ start, pause, position }); actions.current = { start, pause, position }
+  useEffect(() => {
+    const retained = [project, ...history.current, ...(transaction.current ? [transaction.current] : [])].flatMap(item => item.media)
+    const keep = new Set(retained.map(media => media.url))
+    if (download) keep.add(download)
+    for (const url of urls.current) if (!keep.has(url)) { URL.revokeObjectURL(url); urls.current.delete(url) }
+    retainAudio(new Set(retained.map(media => media.id)))
+  }, [project, download])
   useEffect(() => {
     let frame = 0
     const tick = () => {
