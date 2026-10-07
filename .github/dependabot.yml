@@ -4,3 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    groups:
+      vite:
+        patterns:
+          - "@vitejs/plugin-react"
+          - "esbuild"
+          - "vite"

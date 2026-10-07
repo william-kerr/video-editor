@@ -29,6 +29,8 @@ docker exec -it -u node -w /workspaces/video-editor video_editor bash
 
 `npm ci` installs the versions in `package-lock.json` and copies the pinned FFmpeg core into `public/ffmpeg/`. The generated core files are ignored by Git. All worker and WASM assets are served by the app's own origin, including in production.
 
+TypeScript 7 supplies the build's `tsc` command. The worklet unit test uses esbuild to transform TypeScript because TypeScript 7 no longer supplies the old JavaScript compiler API. Dependabot groups Vite, its React plugin and esbuild so compatible tooling updates can be tested together.
+
 ```sh
 npm test                 # Timeline rules and audio DSP
 npm run build            # Type checking, bundling, offline cache manifest

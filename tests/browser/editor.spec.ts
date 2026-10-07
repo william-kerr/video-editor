@@ -145,6 +145,30 @@ test('desktop file drop imports locally without a file chooser or uploads', asyn
   await expect(page.locator('.media-card')).toHaveCount(1)
 })
 
+test('video thumbnails use local blob URLs and filenames remain text', async ({ page }) => {
+  await page.addInitScript(() => {
+    const urls: string[] = [], released: string[] = []
+    ;(window as any).thumbnailURLs = { urls, released }
+    const create = URL.createObjectURL, revoke = URL.revokeObjectURL
+    URL.createObjectURL = file => {
+      const url = create.call(URL, file)
+      if (file instanceof Blob && file.type === 'video/mp4') urls.push(url)
+      return url
+    }
+    URL.revokeObjectURL = url => { released.push(url); revoke.call(URL, url) }
+  })
+  await page.goto('./')
+  const name = '<img src=x onerror="window.filenameExecuted=true">.mp4'
+  await page.locator('input[type=file]').setInputFiles({ name, mimeType: 'video/mp4', buffer: await readFile('tests/fixtures/landscape.mp4') })
+  await expect(page.locator('.media-info strong')).toHaveText(name, { timeout: 60000 })
+  await expect(page.locator('.media-card img')).toHaveAttribute('src', /^data:image\/jpeg;/)
+  expect(await page.evaluate(() => (window as any).filenameExecuted)).toBeUndefined()
+  const { urls, released } = await page.evaluate(() => (window as any).thumbnailURLs)
+  expect(urls).toHaveLength(2)
+  expect(urls.every((url: string) => url.startsWith(`blob:${new URL(page.url()).origin}/`))).toBe(true)
+  expect(urls.filter((url: string) => released.includes(url))).toHaveLength(1)
+})
+
 test('preview fills its pane, marker play pauses at Out, and denoise Learn works', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))

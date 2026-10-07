@@ -36,7 +36,7 @@ export async function importMedia(file: File, status: (text: string) => void): P
       fps: numerator / denominator || 30, peaks: [], hasAudio,
     }
     if (video) {
-      try { media.thumbnail = await thumbnail(url) }
+      try { media.thumbnail = await thumbnail(file) }
       catch {
         status(`Preparing a browser-compatible preview · ${file.name}`)
         const proxy = await withFFmpeg(async ffmpeg => {
@@ -48,10 +48,11 @@ export async function importMedia(file: File, status: (text: string) => void): P
             return (await ffmpeg.readFile(output) as Uint8Array).slice()
           } finally { await removeFiles(ffmpeg, [output]); await unmountFile(ffmpeg, directory) }
         }, status)
-        media.url = URL.createObjectURL(new Blob([proxy.buffer as ArrayBuffer], { type: 'video/mp4' }))
+        const preview = new Blob([proxy.buffer as ArrayBuffer], { type: 'video/mp4' })
+        media.url = URL.createObjectURL(preview)
         URL.revokeObjectURL(url)
         url = media.url
-        try { media.thumbnail = await thumbnail(media.url) }
+        try { media.thumbnail = await thumbnail(preview) }
         catch (error) { URL.revokeObjectURL(media.url); throw error }
       }
     }
@@ -62,13 +63,20 @@ export async function importMedia(file: File, status: (text: string) => void): P
     return media
   } catch (error) { URL.revokeObjectURL(url); throw error }
 }
-function thumbnail(url: string): Promise<string> {
+function thumbnail(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
+    // Only load a URL minted from local media, never a string read from the DOM.
+    const url = URL.createObjectURL(file)
+    let finished = false
     const timeout = window.setTimeout(() => finish(new Error('Video preview timed out')), 15000)
     const finish = (result: string | Error) => {
+      if (finished) return
+      finished = true
       clearTimeout(timeout)
+      video.onerror = null; video.onloadeddata = null; video.onseeked = null
       video.removeAttribute('src'); video.load()
+      URL.revokeObjectURL(url)
       if (result instanceof Error) reject(result); else resolve(result)
     }
     video.muted = true; video.preload = 'auto'; video.playsInline = true

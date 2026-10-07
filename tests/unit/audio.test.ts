@@ -69,11 +69,12 @@ test('sectioned export preserves samples, source offsets and dynamics across gap
 test('stopped worklets retire instead of processing silence forever', async () => {
   const { readFile } = await import('node:fs/promises')
   const { runInNewContext } = await import('node:vm')
-  const { transpileModule, ModuleKind, ScriptTarget } = await import('typescript')
+  const { transform } = await import('esbuild')
   const dsp = await import('../../src/audio/dsp')
   let Processor: any
   const source = await readFile(new URL('../../src/audio/processor.ts', import.meta.url), 'utf8')
-  runInNewContext(transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ES2022 } }).outputText, {
+  const { code } = await transform(source, { loader: 'ts', format: 'cjs', target: 'es2022' })
+  runInNewContext(code, {
     exports: {}, require: () => dsp, sampleRate: 48000,
     AudioWorkletProcessor: class { port = { onmessage: null, postMessage() {}, close() {} } },
     registerProcessor: (_: string, value: any) => { Processor = value },
