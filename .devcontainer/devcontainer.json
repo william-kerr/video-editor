@@ -1,4 +1,5 @@
 {
+  "containerUser": "node",
   "customizations": {
     "vscode": {
       "settings": {
@@ -10,5 +11,5 @@
   },
   "image": "mcr.microsoft.com/devcontainers/javascript-node",
   "name": "Video Editor",
-  "runArgs": ["--name=video_editor"]
+  "runArgs": ["--name=video_editor", "--workdir=${containerWorkspaceFolder}"]
 }
