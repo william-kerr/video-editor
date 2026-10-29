@@ -11,7 +11,7 @@ This is a simple video editor that runs in the browser. If you just want to trim
 
 ## Running Locally
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for local setup, architecture and verification. Contributor guidance is in [AGENTS.md](AGENTS.md); project decisions and lessons are recorded in monthly files under [docs/history](docs/history/).
 
 ## Background
 
