@@ -19,7 +19,7 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "fft.js": "^4.0.4",
     "mediabunny": "^1.61.1",
-    "react": "^19.1.1",
+    "react": "^19.3.1",
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
