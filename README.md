@@ -5,6 +5,14 @@ This is a simple video editor that runs in the browser. If you just want to trim
 **Use in your browser:**  
 <https://william-kerr.github.io/video-editor>
 
+1. Import local video or audio, then drag it from the media panel onto a matching track.
+2. Trim clips, arrange them on the timeline, and adjust the audio in the mixer.
+3. Export to download an MP4. Set In and Out markers to export just a selected range.
+
+Files stay in your browser, with no uploads or analytics. Sessions are kept only in memory: closing or reloading discards your edits, and there is no project save/load or recovery. Download your export before leaving.
+
+Use desktop Chrome or Edge for the full timeline. The editor is intended for short edits; each source file must be smaller than 2 GiB, and long or high-resolution exports can exceed browser memory.
+
 ## Screenshot
 
 ![Video Editor](public/screenshot.png)
