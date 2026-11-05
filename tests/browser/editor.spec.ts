@@ -67,6 +67,22 @@ test('imports, plays audible tracks, edits, loops, and undoes', async ({ page })
   expect(errors).toEqual([])
 })
 
+test('trimming a short audio clip keeps it at the timeline origin', async ({ page }) => {
+  await page.goto('./')
+  await importFiles(page, ['short.wav'])
+  await drop(page, 'short.wav', 'Audio')
+  await page.getByRole('slider', { name: 'Timeline zoom', exact: true }).press('End')
+  const clip = page.locator('.audio-clip')
+  const box = await clip.boundingBox()
+  await page.mouse.move(box!.x + 1, box!.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(box!.x + 40, box!.y + 40, { steps: 6 })
+  await page.mouse.up()
+  expect(await clip.evaluate(element => parseFloat(element.style.left))).toBe(labelWidth)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/editor-short-trim.png' })
+})
+
 test('removing a solo track’s last clip or media restores other audio and can be undone', async ({ page }) => {
   await page.goto('./')
   await importFiles(page, ['landscape.mp4', 'music.wav'])

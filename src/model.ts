@@ -123,14 +123,15 @@ export function trimClip(project: Project, clip: Clip, edge: 'left' | 'right', d
   const media = project.media.find(m => m.id === clip.mediaId)!
   const others = project.clips.filter(c => c.trackId === clip.trackId && c.id !== clip.id)
   const target = snapTime(desired, project, clip.id, threshold)
+  const minimum = Math.min(0.04, duration(clip))
   let next: Clip
   if (edge === 'left') {
     const previous = Math.max(0, ...others.filter(c => end(c) <= clip.start + 0.001).map(end))
-    const start = clamp(target, Math.max(previous, clip.start - clip.sourceIn), end(clip) - 0.04)
+    const start = clamp(target, Math.max(previous, clip.start - clip.sourceIn), end(clip) - minimum)
     next = { ...clip, start, sourceIn: clip.sourceIn + start - clip.start }
   } else {
     const following = Math.min(Infinity, ...others.filter(c => c.start >= end(clip) - 0.001).map(c => c.start))
-    const finish = clamp(target, clip.start + 0.04, Math.min(following, clip.start + media.duration - clip.sourceIn))
+    const finish = clamp(target, clip.start + minimum, Math.min(following, clip.start + media.duration - clip.sourceIn))
     next = { ...clip, sourceOut: clip.sourceIn + finish - clip.start }
   }
   return { ...next, fadeIn: Math.min(next.fadeIn, duration(next)), fadeOut: Math.min(next.fadeOut, duration(next)) }

@@ -47,4 +47,28 @@ describe('timeline editing', () => {
     assert.equal(clipGain(clip, 2.5), .5)
     assert.equal(clipGain(clip, 11), .5)
   })
+  test('trimming media shorter than the minimum trim length stays within its source', () => {
+    const { project, clip } = fixture()
+    project.media[0].duration = .025
+    const short = { ...clip, start: 0, sourceOut: .025, fadeIn: 0, fadeOut: 0 }
+    project.clips = [short]
+    for (const desired of [-1, 0, .02, 1]) {
+      for (const edge of ['left', 'right'] as const) {
+        assert.deepEqual(trimClip(project, short, edge, desired, 0), short)
+      }
+    }
+  })
+  test('short split sections can extend without shrinking or crossing adjacent clips', () => {
+    const { project, clip } = fixture()
+    const split = splitClip(project, clip.id, clip.start + .025)
+    const [left, right] = split.clips
+    assert.deepEqual(trimClip(split, left, 'left', end(left), 0), left)
+    assert.deepEqual(trimClip(split, left, 'right', end(left) + 1, 0), left)
+
+    const isolated = { ...split, clips: [left] }
+    assert.deepEqual(trimClip(isolated, left, 'right', left.start, 0), left)
+    const extended = trimClip(isolated, left, 'right', right.start + 1, 0)
+    assert.ok(end(extended) > end(left))
+    assert.equal(extended.sourceIn, left.sourceIn)
+  })
 })
