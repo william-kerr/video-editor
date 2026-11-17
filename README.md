@@ -11,6 +11,8 @@ This is a simple video editor that runs in the browser. If you just want to trim
 
 Files stay in your browser, with no uploads or analytics. Sessions are kept only in memory: closing or reloading discards your edits, and there is no project save/load or recovery. Download your export before leaving.
 
+Once the app and media engine are cached, you can reopen it offline. Browser storage eviction can remove that cache.
+
 Use desktop Chrome or Edge for the full timeline. The editor is intended for short edits; each source file must be smaller than 2 GiB, and long or high-resolution exports can exceed browser memory.
 
 ## Screenshot
