@@ -83,6 +83,42 @@ test('trimming a short audio clip keeps it at the timeline origin', async ({ pag
   await page.screenshot({ path: 'test-results/editor-short-trim.png' })
 })
 
+test('both sides of a narrow clip remain reachable for trims and fades', async ({ page }) => {
+  await page.goto('./')
+  await importFiles(page, ['music.wav'])
+  await drop(page, 'music.wav', 'Audio')
+  const clip = page.locator('.audio-clip')
+  const full = (await clip.boundingBox())!
+  await page.mouse.move(full.x + full.width - 2, full.y + 40)
+  await page.mouse.down()
+  await page.mouse.move(full.x - 10, full.y + 40, { steps: 6 })
+  await page.mouse.up()
+  const narrow = (await clip.boundingBox())!
+  expect(narrow.width).toBe(4)
+
+  await page.mouse.move(narrow.x + 1, narrow.y + 40)
+  await expect(clip).toHaveClass(/hover-left/)
+  await page.mouse.move(narrow.x + 3, narrow.y + 40)
+  await expect(clip).toHaveClass(/hover-right/, { timeout: 2000 })
+  await page.mouse.down()
+  await page.mouse.move(narrow.x + 27, narrow.y + 40, { steps: 6 })
+  await page.mouse.up()
+  expect(await clip.evaluate(element => parseFloat(element.style.width))).toBeCloseTo(1.04 * 24)
+  await page.screenshot({ path: 'test-results/editor-narrow-trim.png' })
+
+  await page.keyboard.press('Control+z')
+  await page.mouse.move(narrow.x + 1, narrow.y + 10)
+  await expect(clip).toHaveClass(/hover-fade-in/)
+  await page.mouse.move(narrow.x + 3, narrow.y + 10)
+  await expect(clip).toHaveClass(/hover-fade-out/)
+  const fadeOut = clip.locator('.fade-triangles polygon').last()
+  const unfaded = await fadeOut.getAttribute('points')
+  await page.mouse.down()
+  await page.mouse.move(narrow.x - 10, narrow.y + 10, { steps: 6 })
+  await page.mouse.up()
+  await expect(fadeOut).not.toHaveAttribute('points', unfaded!)
+})
+
 test('removing a solo track’s last clip or media restores other audio and can be undone', async ({ page }) => {
   await page.goto('./')
   await importFiles(page, ['landscape.mp4', 'music.wav'])
@@ -399,6 +435,63 @@ for (const extension of ['mp3', 'wav', 'm4a']) test(`file drop recognizes ${exte
     return c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data.some((value, i) => i % 4 === 1 && value > 150)
   })).toBe(true)
   expect(await page.evaluate(() => Math.max(0, ...(window as any).decodedDurations))).toBeLessThanOrEqual(8.3)
+})
+
+declare global {
+  interface Window {
+    playbackSetup: { context?: AudioContext; waiting: boolean; release: () => void }
+  }
+}
+
+async function holdPlaybackSetup(page: Page) {
+  await page.addInitScript(() => {
+    let release = () => {}
+    const gate = new Promise<void>(resolve => { release = resolve })
+    window.playbackSetup = { waiting: false, release }
+    window.AudioContext = new Proxy(AudioContext, { construct(Target, args) {
+      const context = Reflect.construct(Target, args) as AudioContext
+      window.playbackSetup.context = context
+      return context
+    } })
+    const addModule = AudioWorklet.prototype.addModule
+    AudioWorklet.prototype.addModule = async function (url, options) {
+      await addModule.call(this, url, options)
+      window.playbackSetup.waiting = true
+      await gate
+    }
+  })
+  await page.goto('./')
+  await importFiles(page, ['music.wav'])
+  await drop(page, 'music.wav', 'Audio')
+  await seek(page, 2)
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await page.waitForFunction(() => window.playbackSetup.waiting)
+}
+
+test('mixer edits during playback setup keep the requested playhead position', async ({ page }) => {
+  await holdPlaybackSetup(page)
+  await page.getByRole('slider', { name: 'Audio gain in decibels' }).press('ArrowRight')
+  await expect(page.getByLabel('Playhead time')).toHaveText('00:02.00', { timeout: 2000 })
+  await page.evaluate(() => window.playbackSetup.release())
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await expect(page.getByLabel('Playhead time')).toHaveText(/^00:02\.(?!00)\d{2}$/)
+})
+
+test('suspending the audio context during setup allows playback to restart', async ({ page }) => {
+  await holdPlaybackSetup(page)
+  await page.evaluate(async () => {
+    const { context, release } = window.playbackSetup
+    const changed = new Promise<void>(resolve => context!.addEventListener('statechange', () => resolve(), { once: true }))
+    await context!.suspend()
+    await changed
+    release()
+  })
+  await expect(page.getByRole('alert')).toContainText('Audio playback was interrupted', { timeout: 2000 })
+  await expect(page.getByLabel('Playhead time')).toHaveText('00:02.00')
+  await page.screenshot({ path: 'test-results/editor-playback-interrupted.png' })
+  await page.getByRole('button', { name: 'Play (Space)', exact: true }).click()
+  await expect(page.locator('.status-bar')).toContainText('Playing')
+  await expect(page.getByLabel('Playhead time')).toHaveText(/^00:02\.(?!00)\d{2}$/)
 })
 
 test('repeated play and stop releases nodes and recovers a suspended or closed audio context', async ({ page }) => {

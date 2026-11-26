@@ -24,10 +24,16 @@ export function Timeline(props: Props) {
   function operation(event: React.PointerEvent, clip: Clip): Operation {
     const rect = event.currentTarget.getBoundingClientRect()
     const x = event.clientX - rect.left, y = event.clientY - rect.top
-    const fadeInX = Math.max(6, clip.fadeIn * zoom), fadeOutX = rect.width - Math.max(6, clip.fadeOut * zoom)
-    if (y <= 22 && (x < 18 || Math.abs(x - fadeInX) < 7)) return 'fade-in'
-    if (y <= 22 && (x > rect.width - 18 || Math.abs(x - fadeOutX) < 7)) return 'fade-out'
-    if (x < 9) return 'left'
+    if (y <= 22) {
+      const inset = Math.min(6, rect.width / 4)
+      const fadeInDistance = Math.abs(x - Math.max(inset, clip.fadeIn * zoom))
+      const fadeOutDistance = Math.abs(x - (rect.width - Math.max(inset, clip.fadeOut * zoom)))
+      const hitsFadeIn = x < 18 || fadeInDistance < 7
+      const hitsFadeOut = x > rect.width - 18 || fadeOutDistance < 7
+      if (hitsFadeIn && (!hitsFadeOut || fadeInDistance <= fadeOutDistance)) return 'fade-in'
+      if (hitsFadeOut) return 'fade-out'
+    }
+    if (x < 9 && x <= rect.width / 2) return 'left'
     if (x > rect.width - 9) return 'right'
     return 'move'
   }

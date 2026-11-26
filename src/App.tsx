@@ -63,7 +63,7 @@ export function App() {
     if (before && before !== state.current) {
       history.current.push(before)
       if (history.current.length > 80) history.current.shift()
-      if (running.current) void start(markerPlayback.current, engine.time())
+      if (running.current) void start(markerPlayback.current, engine.active ? engine.time() : playhead.current)
     }
   }
   function undo() {

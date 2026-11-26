@@ -5,6 +5,7 @@ import processorURL from './processor.ts?worker&url'
 
 interface Voice { trackId: string; sources: AudioBufferSourceNode[]; dry: GainNode; wet?: GainNode; fade: GainNode }
 interface Prepared { clip: Clip; dry: AudioBuffer; wet?: AudioBuffer; start: number; finish: number }
+const interrupted = 'Audio playback was interrupted. Press Play to resume.'
 
 export class AudioPlayback {
   private context: AudioContext | null = null
@@ -38,6 +39,7 @@ export class AudioPlayback {
     let next = Math.min(finish, at + 4)
     const prepared = await this.prepare(project, at, next, generation)
     if (generation !== this.generation) return false
+    if (ctx.state !== 'running') throw new Error(interrupted)
     this.offset = at; this.began = ctx.currentTime + .06
     this.master = this.node('mix')
     this.master.connect(ctx.destination)
@@ -49,7 +51,7 @@ export class AudioPlayback {
     this.active = true
     this.update(project)
     ctx.onstatechange = () => {
-      if (this.active && ctx.state !== 'running') this.fail(new Error('Audio playback was interrupted. Press Play to resume.'))
+      if (this.active && ctx.state !== 'running') this.fail(new Error(interrupted))
     }
     const pump = async () => {
       try {
